@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"image"
+	"log"
+	"os"
 	"strings"
 
 	"time"
@@ -14,26 +17,32 @@ import (
 const asciiChars = "@%#*+=-:. "
 
 func main() {
+	//config
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{URLs: []string{"stun:stun.l.google.com:19302"}},
 		},
 	}
 
+	//peer coneection
 	peerConnection, err := webrtc.NewPeerConnection(config)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	dataChannel, err := peerConnection.CreateDataChannel("ascii", nil)
+	peerConnection.OnDataChannel(func(d *webrtc.DataChannel) {
+		d.OnMessage(func(msg webrtc.DataChannelMessage) {
+			fmt.Print("\033[H\033[2J") // Clear terminal
+			fmt.Print(string(msg.Data))
+		})
+	})
+
+	dataChannel, err := peerConnection.CreateDataChannel("video", nil)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-
-	webcam, _ := gocv.OpenVideoCapture(0)
-	img := gocv.NewMat()
 
 	peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
@@ -45,6 +54,24 @@ func main() {
 	offer, _ := peerConnection.CreateOffer(nil)
 	peerConnection.SetLocalDescription(offer)
 	fmt.Printf("SDP Offer:\n%s\n", offer.SDP)
+
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("Enter your SDP address")
+	remoteSDP, _ := reader.ReadString('\n')
+
+	err = peerConnection.SetLocalDescription(offer)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	peerConnection.SetRemoteDescription(webrtc.SessionDescription{
+		Type: webrtc.SDPTypeAnswer,
+		SDP:  strings.TrimSpace(remoteSDP),
+	})
+
+	webcam, _ := gocv.OpenVideoCapture(0)
+	img := gocv.NewMat()
 
 	dataChannel.OnOpen(func() {
 		fmt.Print("Data channel open")
